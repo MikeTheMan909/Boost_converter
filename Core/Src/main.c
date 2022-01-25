@@ -9,10 +9,10 @@
   * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
   * All rights reserved.</center></h2>
   *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
+  * This software component is licensed by ST under BSD 3-Clause license,
+  * the "License"; You may not use this file except in compliance with the
+  * License. You may obtain a copy of the License at:
+  *                        opensource.org/licenses/BSD-3-Clause
   *
   ******************************************************************************
   */
@@ -22,7 +22,10 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "keys.h"
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,6 +49,10 @@ TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
 
+char keyarr[3] = {0,0};
+unsigned long last = 0;  // the last time the output pin was toggled
+unsigned long delay = 200;    // the debounce time; increase if the output flickers
+int voltage_level_measured = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -59,7 +66,49 @@ static void MX_TIM1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+char convert(int keys){
+	switch(keys){
+		case 1: return 1; break;
+		case 2: return 2; break;
+		case 3: return 3; break;
+		case 4: return 'A'; break;
+		case 5: return 4; break;
+		case 6: return 5; break;
+		case 7: return 6; break;
+		case 8: return 'B'; break;
+		case 9: return 7; break;
+		case 10: return 8; break;
+		case 11: return 9; break;
+		case 12: return 'C'; break;
+		case 13: return '*'; break;
+		case 14: return 0; break;
+		case 15: return '#'; break;
+		case 16: return 'D'; break;
+	}
+	return 0;
+}
 
+float decimal(int num){
+	switch(num){
+		case 1: return 0.1f; break;
+		case 2: return 0.2f; break;
+		case 3: return 0.3f; break;
+		case 4: return 0.4f; break;
+		case 5: return 0.5f; break;
+		case 6: return 0.6f; break;
+		case 7: return 0.7f; break;
+		case 8: return 0.8f; break;
+		case 9: return 0.9f; break;
+		default: return 0; break;
+	}
+	return 0;
+}
+
+void set_voltage_level(float level){
+	HAL_ADC_Start(&hadc1);
+	HAL_ADC_PollForConversion(&hadc1, 1000);
+	voltage_level_measured = HAL_ADC_GetValue(&hadc1);
+}
 /* USER CODE END 0 */
 
 /**
@@ -78,7 +127,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  KEYS_init();
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -93,7 +142,11 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-
+  TIM1->CCR1 = 3;
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  int keys = 0;
+  int i =0;
+  float voltage_set = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -101,7 +154,30 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+	 keys = KEYS_read();
+	 set_voltage_level(1);
+	 if((HAL_GetTick() - last) > delay){
+		 if(keys != 0 && keys != keyarr[i]){
+		   keyarr[i] = convert(keys);
+		   if(i == 0){
+			   voltage_set = (float)keyarr[i];
+		   }
+		   if(i == 1){
+			   voltage_set += decimal(keyarr[i]);
+		   }
+		   if(keyarr[i] == '#'){
+			   memset(keyarr, 0, 3);
+			   i=0;
+		   }
+		   if(i == 2 && keyarr[2] == 'A'){
+			   memset(keyarr, 0, 3);
+			   set_voltage_level(voltage_set);
+		   }
+		   if(i == 2) i = 0;
+		   else i++;
+		   last = HAL_GetTick();
+		 }
+	 }
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -222,9 +298,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 0;
+  htim1.Init.Prescaler = 25-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 65535;
+  htim1.Init.Period = 5-1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
