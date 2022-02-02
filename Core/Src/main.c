@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,6 +36,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define FLOAT_TO_INT(x) ((x)>=0?(int)((x)+0.5):(int)((x)-0.5))
+#define R1 92.1
+#define R2 9.86
+#define R3 260
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -53,6 +58,7 @@ char keyarr[3] = {0,0};
 unsigned long last = 0;  // the last time the output pin was toggled
 unsigned long delay = 200;    // the debounce time; increase if the output flickers
 int voltage_level_measured = 0;
+int voltage_setpoint = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -84,11 +90,12 @@ char convert(int keys){
 		case 14: return 0; break;
 		case 15: return '#'; break;
 		case 16: return 'D'; break;
+		default: return 0; break;
 	}
 	return 0;
 }
 
-float decimal(int num){
+float decimal(char num){
 	switch(num){
 		case 1: return 0.1f; break;
 		case 2: return 0.2f; break;
@@ -103,11 +110,26 @@ float decimal(int num){
 	}
 	return 0;
 }
+void V_TO_ADC(float voltage_set){
+	float Rtot = ((float)(R2*R3)/(float)(R3+R2));
+	float voltage = ((voltage_set) * Rtot)/(Rtot + R1);
+	voltage_setpoint = FLOAT_TO_INT((voltage * 4096)/3.20);
+}
 
-void set_voltage_level(float level){
+void set_voltage_level(){
 	HAL_ADC_Start(&hadc1);
-	HAL_ADC_PollForConversion(&hadc1, 1000);
+	HAL_ADC_PollForConversion(&hadc1, 10);
 	voltage_level_measured = HAL_ADC_GetValue(&hadc1);
+	if(voltage_level_measured < voltage_setpoint){
+		if(TIM1->CCR1 < 200){
+		TIM1->CCR1++;
+		}
+	}
+	else if(voltage_level_measured > voltage_setpoint){
+		if(TIM1->CCR1 > 10){
+		TIM1->CCR1--;
+		}
+	}
 }
 /* USER CODE END 0 */
 
@@ -142,7 +164,12 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-  TIM1->CCR1 = 3;
+  //R1 = 92K
+  //R2 = 10K
+  //Value = (Vin/10)/4096
+  //557 = 5V
+  V_TO_ADC(5);
+  TIM1->CCR1 = 84;
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   int keys = 0;
   int i =0;
@@ -153,9 +180,8 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
+
 	 keys = KEYS_read();
-	 set_voltage_level(1);
 	 if((HAL_GetTick() - last) > delay){
 		 if(keys != 0 && keys != keyarr[i]){
 		   keyarr[i] = convert(keys);
@@ -170,14 +196,17 @@ int main(void)
 			   i=0;
 		   }
 		   if(i == 2 && keyarr[2] == 'A'){
-			   memset(keyarr, 0, 3);
-			   set_voltage_level(voltage_set);
+
+			   V_TO_ADC(voltage_set);
 		   }
-		   if(i == 2) i = 0;
+		   if(i == 2){ i = 0;  memset(keyarr, 0, 3);}
 		   else i++;
 		   last = HAL_GetTick();
 		 }
 	 }
+	 set_voltage_level();
+    /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -206,7 +235,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 8;
   RCC_OscInitStruct.PLL.PLLN = 50;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 7;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -218,10 +247,10 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -298,9 +327,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 25-1;
+  htim1.Init.Prescaler = 1-1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 5-1;
+  htim1.Init.Period = 250-1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
